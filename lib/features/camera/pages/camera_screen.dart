@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:snap_receipt/core/theme/app_theme_constants.dart';
 import 'package:camera/camera.dart';
+import 'package:go_router/go_router.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -14,7 +15,6 @@ class CameraScreen extends StatefulWidget {
 class _CameraScreenState extends State<CameraScreen> {
   CameraController? _controller;
   bool _isCameraReady = false;
-  File? _imageFile;
   final ImagePicker _picker = ImagePicker();
 
   @override
@@ -38,7 +38,7 @@ class _CameraScreenState extends State<CameraScreen> {
       }
     } catch (e) {
       debugPrint('Camera initialization failed: $e');
-      // Fallback: user can pick from gallery
+      // fallback: user can still pick from gallery
     }
   }
 
@@ -48,7 +48,9 @@ class _CameraScreenState extends State<CameraScreen> {
 
     try {
       final XFile capturedFile = await _controller!.takePicture();
-      setState(() => _imageFile = File(capturedFile.path));
+      final file = File(capturedFile.path);
+      if (!mounted) return;
+      context.push('/preview', extra: file);
     } catch (e) {
       debugPrint('Capture failed: $e');
     }
@@ -61,7 +63,9 @@ class _CameraScreenState extends State<CameraScreen> {
         source: ImageSource.gallery,
       );
       if (pickedFile != null) {
-        setState(() => _imageFile = File(pickedFile.path));
+        final file = File(pickedFile.path);
+        if (!mounted) return;
+        context.push('/preview', extra: file);
       }
     } catch (e) {
       debugPrint('Gallery pick failed: $e');
@@ -79,11 +83,9 @@ class _CameraScreenState extends State<CameraScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Full-screen camera preview or image
+          // Full-screen camera preview
           Positioned.fill(
-            child: _imageFile != null
-                ? Image.file(_imageFile!, fit: BoxFit.cover)
-                : _isCameraReady && _controller != null
+            child: _isCameraReady && _controller != null
                 ? CameraPreview(_controller!)
                 : Container(
                     color: Colors.black,
