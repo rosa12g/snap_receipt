@@ -27,6 +27,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
       appBar: AppBar(
         title: const Text('Crop Receipt'),
         backgroundColor: AppThemeConstants.primaryColor,
+        elevation: 0,
       ),
       body: Stack(
         children: [
@@ -68,33 +69,60 @@ class _PreviewScreenState extends State<PreviewScreen> {
           ),
           Positioned(
             bottom: 40,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  final file = await _cropToFile();
-                  if (!mounted) return;
-                  debugPrint(
-                    'Navigating to OCR with cropped file: ${file.path}',
-                  );
-                  context.push('/ocr', extra: file);
-                },
-                icon: const Icon(Icons.crop),
-                label: const Text("Crop & Next"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppThemeConstants.primaryColor,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(
-                      AppThemeConstants.buttonRadius,
+            left: 20,
+            right: 20,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Retake button
+                ElevatedButton.icon(
+                  onPressed: () {
+                    context.go('/camera'); // Go back to camera screen
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Retake"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[200],
+                    foregroundColor: AppThemeConstants.primaryColor,
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppThemeConstants.buttonRadius,
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
                     ),
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
+                ),
+                // Crop & Next button
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final file = await _cropToFile();
+                    if (!mounted) return;
+                    debugPrint(
+                      'Navigating to OCR with cropped file: ${file.path}',
+                    );
+                    context.push('/ocr', extra: file);
+                  },
+                  icon: const Icon(Icons.crop),
+                  label: const Text("Crop & Next"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppThemeConstants.primaryColor,
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppThemeConstants.buttonRadius,
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
@@ -110,10 +138,12 @@ class _PreviewScreenState extends State<PreviewScreen> {
       debugPrint('Failed to decode image: ${widget.imageFile.path}');
       return widget.imageFile;
     }
+
     final x = (left * src.width).round();
     final y = (top * src.height).round();
     final w = (width * src.width).round();
     final h = (height * src.height).round();
+
     final rect = img.copyCrop(
       src,
       x: math.max(0, x),
@@ -121,18 +151,17 @@ class _PreviewScreenState extends State<PreviewScreen> {
       width: math.min(w, src.width - x),
       height: math.min(h, src.height - y),
     );
-    final out = img.encodeJpg(
-      rect,
-      quality: 85,
-    ); // Lower quality to reduce size
+
+    final out = img.encodeJpg(rect, quality: 85);
     final file = File(
       '${widget.imageFile.path}_${DateTime.now().millisecondsSinceEpoch}_crop.jpg',
     );
     await file.writeAsBytes(out, flush: true);
+
     final duration = DateTime.now().difference(start).inMilliseconds;
     debugPrint('Cropped image saved: ${file.path}, took ${duration}ms');
 
-    // Clean up original file
+    // Delete original file
     if (await widget.imageFile.exists()) {
       try {
         await widget.imageFile.delete();
@@ -174,9 +203,11 @@ class _CropOverlay extends StatelessWidget {
 
         return Stack(
           children: [
+            // Darkened background outside crop area
             Positioned.fill(
               child: Container(color: Colors.black.withOpacity(0.5)),
             ),
+            // Crop area
             Positioned(
               left: cropLeft,
               top: cropTop,
@@ -195,24 +226,27 @@ class _CropOverlay extends StatelessWidget {
                       color: Colors.white.withOpacity(0.95),
                       width: 3,
                     ),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
             ),
+            // Top-left handle
             _buildHandle(
               context,
-              left: cropLeft,
-              top: cropTop,
+              left: cropLeft - 10,
+              top: cropTop - 10,
               onUpdate: (dx, dy) => onResize(
                 'topLeft',
                 dx / constraints.maxWidth,
                 dy / constraints.maxHeight,
               ),
             ),
+            // Bottom-right handle
             _buildHandle(
               context,
-              left: cropLeft + cropWidth - 20,
-              top: cropTop + cropHeight - 20,
+              left: cropLeft + cropWidth - 10,
+              top: cropTop + cropHeight - 10,
               onUpdate: (dx, dy) => onResize(
                 'bottomRight',
                 dx / constraints.maxWidth,
@@ -243,6 +277,13 @@ class _CropOverlay extends StatelessWidget {
             color: AppThemeConstants.primaryColor,
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 4,
+                offset: Offset(1, 2),
+              ),
+            ],
           ),
         ),
       ),
