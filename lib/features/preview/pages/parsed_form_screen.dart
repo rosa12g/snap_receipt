@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-
+import 'package:go_router/go_router.dart';
 import 'package:snap_receipt/core/theme/app_theme_constants.dart';
 import 'package:snap_receipt/features/receipts/models/receipt_data.dart';
 import 'package:snap_receipt/features/receipts/models/item_data.dart';
@@ -57,7 +57,9 @@ class _ParsedFormScreenState extends State<ParsedFormScreen> {
           const SizedBox(height: 12),
           TextFormField(
             initialValue: _editable.totalAmount.toStringAsFixed(2),
-            decoration: InputDecoration(labelText: 'Total (${_editable.currency})'),
+            decoration: InputDecoration(
+              labelText: 'Total (${_editable.currency})',
+            ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             onChanged: (v) => setState(() {
               final t = double.tryParse(v) ?? _editable.totalAmount;
@@ -75,11 +77,16 @@ class _ParsedFormScreenState extends State<ParsedFormScreen> {
           const SizedBox(height: 16),
           Text('Items', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          ..._editable.items.asMap().entries.map((e) => _buildItemCard(e.key, e.value)).toList(),
+          ..._editable.items.asMap().entries.map(
+            (e) => _buildItemCard(e.key, e.value),
+          ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => setState(() {
-              final items = [..._editable.items, const ItemData(name: 'New Item')];
+              final items = [
+                ..._editable.items,
+                const ItemData(name: 'New Item'),
+              ];
               _editable = ReceiptData(
                 storeName: _editable.storeName,
                 purchaseDate: _editable.purchaseDate,
@@ -134,9 +141,13 @@ class _ParsedFormScreenState extends State<ParsedFormScreen> {
                   child: TextFormField(
                     initialValue: item.quantity?.toString() ?? '',
                     decoration: const InputDecoration(labelText: 'Qty'),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     onChanged: (v) => setState(() {
-                      final updated = item.copyWith(quantity: double.tryParse(v));
+                      final updated = item.copyWith(
+                        quantity: double.tryParse(v),
+                      );
                       final list = [..._editable.items];
                       list[index] = updated;
                       _editable = ReceiptData(
@@ -156,9 +167,13 @@ class _ParsedFormScreenState extends State<ParsedFormScreen> {
                   child: TextFormField(
                     initialValue: item.unitPrice?.toString() ?? '',
                     decoration: const InputDecoration(labelText: 'Unit Price'),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     onChanged: (v) => setState(() {
-                      final updated = item.copyWith(unitPrice: double.tryParse(v));
+                      final updated = item.copyWith(
+                        unitPrice: double.tryParse(v),
+                      );
                       final list = [..._editable.items];
                       list[index] = updated;
                       _editable = ReceiptData(
@@ -178,9 +193,13 @@ class _ParsedFormScreenState extends State<ParsedFormScreen> {
                   child: TextFormField(
                     initialValue: item.lineTotal?.toString() ?? '',
                     decoration: const InputDecoration(labelText: 'Line Total'),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     onChanged: (v) => setState(() {
-                      final updated = item.copyWith(lineTotal: double.tryParse(v));
+                      final updated = item.copyWith(
+                        lineTotal: double.tryParse(v),
+                      );
                       final list = [..._editable.items];
                       list[index] = updated;
                       _editable = ReceiptData(
@@ -222,10 +241,85 @@ class _ParsedFormScreenState extends State<ParsedFormScreen> {
   }
 
   Future<void> _onSubmit() async {
-    await _queue.enqueue(_editable.toJson());
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved to offline queue')));
-    Navigator.of(context).popUntil((r) => r.isFirst);
+
+    try {
+      await _queue.enqueue(_editable.toJson());
+
+      // Show success dialog
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: AppThemeConstants.successColor),
+                SizedBox(width: 8),
+                Text('Submitted Successfully!'),
+              ],
+            ),
+            content: const Text('Receipt has been saved to the offline queue.'),
+            actions: <Widget>[
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: AppThemeConstants.primaryColor,
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('OK'),
+              ),
+            ],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppThemeConstants.cardRadius),
+            ),
+          );
+        },
+      );
+
+      if (!mounted) return;
+
+      // Navigate back to camera screen after dialog is dismissed
+      context.go('/camera');
+    } catch (e) {
+      if (!mounted) return;
+
+      // Show error dialog
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.error, color: AppThemeConstants.errorColor),
+                SizedBox(width: 8),
+                Text(
+                  'Submission Failed',
+                  style: TextStyle(color: AppThemeConstants.errorColor),
+                ),
+              ],
+            ),
+            content: Text('Error: $e'),
+            actions: <Widget>[
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: AppThemeConstants.primaryColor,
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('OK'),
+              ),
+            ],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppThemeConstants.cardRadius),
+            ),
+          );
+        },
+      );
+    }
   }
 }
 
@@ -248,8 +342,14 @@ class _ConfidenceHeader extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         margin: const EdgeInsets.only(right: 8, bottom: 8),
-        decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(999)),
-        child: Text('$label ${(v * 100).toStringAsFixed(0)}%', style: TextStyle(color: color)),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          '$label ${(v * 100).toStringAsFixed(0)}%',
+          style: TextStyle(color: color),
+        ),
       );
     }
 
@@ -261,8 +361,14 @@ class _ConfidenceHeader extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(12),
             margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(color: AppThemeConstants.warningColor.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
-            child: const Text('Validation warning: item totals deviate from total', style: TextStyle(color: AppThemeConstants.warningColor)),
+            decoration: BoxDecoration(
+              color: AppThemeConstants.warningColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              'Validation warning: item totals deviate from total',
+              style: TextStyle(color: AppThemeConstants.warningColor),
+            ),
           ),
         Wrap(
           children: [
@@ -276,5 +382,3 @@ class _ConfidenceHeader extends StatelessWidget {
     );
   }
 }
-
-

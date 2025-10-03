@@ -3,8 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:snap_receipt/core/theme/app_theme_constants.dart';
 import 'package:image/image.dart' as img;
+import 'package:snap_receipt/core/theme/app_theme_constants.dart';
 
 class PreviewScreen extends StatefulWidget {
   final File imageFile;
@@ -16,258 +16,236 @@ class PreviewScreen extends StatefulWidget {
 }
 
 class _PreviewScreenState extends State<PreviewScreen> {
-  // Normalized crop rect [0..1]
   double left = 0.07;
   double top = 0.15;
   double width = 0.86;
-  double height = 0.6;
-
-  Offset? _dragStart;
-  late double _startLeft;
-  late double _startTop;
-  late double _startWidth;
-  late double _startHeight;
-
-  void _onPanStart(DragStartDetails d, Size size) {
-    _dragStart = d.localPosition;
-    _startLeft = left;
-    _startTop = top;
-  }
-
-  void _onPanUpdate(DragUpdateDetails d, Size size) {
-    if (_dragStart == null) return;
-    final dx = d.localPosition.dx - _dragStart!.dx;
-    final dy = d.localPosition.dy - _dragStart!.dy;
-    final nl = (_startLeft + dx / size.width).clamp(0.0, 1.0 - width);
-    final nt = (_startTop + dy / size.height).clamp(0.0, 1.0 - height);
-    setState(() {
-      left = nl;
-      top = nt;
-    });
-  }
-
-  // Resize via drag handles
-  void _onResizeStart(Size size) {
-    _startWidth = width;
-    _startHeight = height;
-    _startLeft = left;
-    _startTop = top;
-  }
-
-  void _applyBounds() {
-    width = width.clamp(0.25, 0.98);
-    height = height.clamp(0.18, 0.98);
-    left = left.clamp(0.0, 1.0 - width);
-    top = top.clamp(0.0, 1.0 - height);
-  }
-
-  Future<File> _cropToFile() async {
-    final bytes = await widget.imageFile.readAsBytes();
-    final src = img.decodeImage(bytes);
-    if (src == null) return widget.imageFile;
-    final x = (left * src.width).round();
-    final y = (top * src.height).round();
-    final w = (width * src.width).round();
-    final h = (height * src.height).round();
-    final rect = img.copyCrop(src, x: math.max(0, x), y: math.max(0, y), width: math.min(w, src.width - x), height: math.min(h, src.height - y));
-    final out = img.encodeJpg(rect, quality: 90);
-    final file = File(widget.imageFile.path.replaceFirst('.jpg', '_crop.jpg'));
-    await file.writeAsBytes(out, flush: true);
-    return file;
-  }
+  double height = 0.70;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: LayoutBuilder(
-        builder: (context, c) {
-          final box = Size(c.maxWidth, c.maxHeight);
-          return Stack(
-            children: [
-              Positioned.fill(child: Image.file(widget.imageFile, fit: BoxFit.cover)),
-
-              // Crop overlay with hole
-              Positioned.fill(
-                child: GestureDetector(
-                  onPanStart: (d) => _onPanStart(d, box),
-                  onPanUpdate: (d) => _onPanUpdate(d, box),
-                  child: CustomPaint(
-                    painter: _CropOverlayPainter(left, top, width, height),
+      appBar: AppBar(
+        title: const Text('Crop Receipt'),
+        backgroundColor: AppThemeConstants.primaryColor,
+      ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.file(widget.imageFile, fit: BoxFit.contain),
+          ),
+          _CropOverlay(
+            left: left,
+            top: top,
+            width: width,
+            height: height,
+            onDrag: (dx, dy) {
+              setState(() {
+                left = (left + dx).clamp(0.0, 1.0 - width);
+                top = (top + dy).clamp(0.0, 1.0 - height);
+              });
+            },
+            onResize: (corner, dx, dy) {
+              setState(() {
+                if (corner == 'topLeft') {
+                  final newWidth = width - dx;
+                  final newHeight = height - dy;
+                  if (newWidth >= 0.1 && newHeight >= 0.1) {
+                    left += dx;
+                    top += dy;
+                    width = newWidth;
+                    height = newHeight;
+                  }
+                } else if (corner == 'bottomRight') {
+                  final newWidth = width + dx;
+                  final newHeight = height + dy;
+                  if (newWidth <= 1.0 - left && newHeight <= 1.0 - top) {
+                    width = newWidth;
+                    height = newHeight;
+                  }
+                }
+              });
+            },
+          ),
+          Positioned(
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final file = await _cropToFile();
+                  if (!mounted) return;
+                  debugPrint(
+                    'Navigating to OCR with cropped file: ${file.path}',
+                  );
+                  context.push('/ocr', extra: file);
+                },
+                icon: const Icon(Icons.crop),
+                label: const Text("Crop & Next"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppThemeConstants.primaryColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppThemeConstants.buttonRadius,
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
                   ),
                 ),
               ),
-
-              // Drag handles (corners)
-              _CornerHandle(
-                positionBuilder: (s) => Offset(left * s.width, top * s.height),
-                onPanStart: (sz) => setState(() => _onResizeStart(sz)),
-                onPanUpdate: (delta, sz) {
-                  setState(() {
-                    final dx = delta.dx / sz.width;
-                    final dy = delta.dy / sz.height;
-                    left = _startLeft + dx;
-                    top = _startTop + dy;
-                    width = _startWidth - dx;
-                    height = _startHeight - dy;
-                    _applyBounds();
-                  });
-                },
-              ),
-              _CornerHandle(
-                positionBuilder: (s) => Offset((left + width) * s.width, top * s.height),
-                onPanStart: (sz) => setState(() => _onResizeStart(sz)),
-                onPanUpdate: (delta, sz) {
-                  setState(() {
-                    final dx = delta.dx / sz.width;
-                    final dy = delta.dy / sz.height;
-                    top = _startTop + dy;
-                    width = _startWidth + dx;
-                    height = _startHeight - dy;
-                    _applyBounds();
-                  });
-                },
-              ),
-              _CornerHandle(
-                positionBuilder: (s) => Offset(left * s.width, (top + height) * s.height),
-                onPanStart: (sz) => setState(() => _onResizeStart(sz)),
-                onPanUpdate: (delta, sz) {
-                  setState(() {
-                    final dx = delta.dx / sz.width;
-                    final dy = delta.dy / sz.height;
-                    left = _startLeft + dx;
-                    width = _startWidth - dx;
-                    height = _startHeight + dy;
-                    _applyBounds();
-                  });
-                },
-              ),
-              _CornerHandle(
-                positionBuilder: (s) => Offset((left + width) * s.width, (top + height) * s.height),
-                onPanStart: (sz) => setState(() => _onResizeStart(sz)),
-                onPanUpdate: (delta, sz) {
-                  setState(() {
-                    final dx = delta.dx / sz.width;
-                    final dy = delta.dy / sz.height;
-                    width = _startWidth + dx;
-                    height = _startHeight + dy;
-                    _applyBounds();
-                  });
-                },
-              ),
-
-              // Bottom buttons
-              Positioned(
-                bottom: 40,
-                left: 0,
-                right: 0,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    // Retake button
-                    ElevatedButton.icon(
-                      onPressed: () => context.pop(),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text("Retake"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppThemeConstants.errorColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppThemeConstants.buttonRadius),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
-                    ),
-
-                    // Crop & Next
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        final file = await _cropToFile();
-                        if (!mounted) return;
-                        context.push('/ocr', extra: file);
-                      },
-                      icon: const Icon(Icons.crop),
-                      label: const Text("Crop & Next"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppThemeConstants.primaryColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppThemeConstants.buttonRadius),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  // removed +/- controls in favor of draggable corners
+  Future<File> _cropToFile() async {
+    final start = DateTime.now();
+    final bytes = await widget.imageFile.readAsBytes();
+    final src = img.decodeImage(bytes);
+    if (src == null) {
+      debugPrint('Failed to decode image: ${widget.imageFile.path}');
+      return widget.imageFile;
+    }
+    final x = (left * src.width).round();
+    final y = (top * src.height).round();
+    final w = (width * src.width).round();
+    final h = (height * src.height).round();
+    final rect = img.copyCrop(
+      src,
+      x: math.max(0, x),
+      y: math.max(0, y),
+      width: math.min(w, src.width - x),
+      height: math.min(h, src.height - y),
+    );
+    final out = img.encodeJpg(
+      rect,
+      quality: 85,
+    ); // Lower quality to reduce size
+    final file = File(
+      '${widget.imageFile.path}_${DateTime.now().millisecondsSinceEpoch}_crop.jpg',
+    );
+    await file.writeAsBytes(out, flush: true);
+    final duration = DateTime.now().difference(start).inMilliseconds;
+    debugPrint('Cropped image saved: ${file.path}, took ${duration}ms');
+
+    // Clean up original file
+    if (await widget.imageFile.exists()) {
+      try {
+        await widget.imageFile.delete();
+        debugPrint('Deleted original file: ${widget.imageFile.path}');
+      } catch (e) {
+        debugPrint('Failed to delete original file: $e');
+      }
+    }
+
+    return file;
+  }
 }
 
-class _CropOverlayPainter extends CustomPainter {
+class _CropOverlay extends StatelessWidget {
   final double left;
   final double top;
   final double width;
   final double height;
-  _CropOverlayPainter(this.left, this.top, this.width, this.height);
+  final Function(double dx, double dy) onDrag;
+  final Function(String corner, double dx, double dy) onResize;
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = Colors.black.withOpacity(0.5);
-    final rect = Rect.fromLTWH(left * size.width, top * size.height, width * size.width, height * size.height);
-    // dim everything
-    canvas.drawRect(Offset.zero & size, paint);
-    // cut out crop area
-    final clear = Paint()..blendMode = BlendMode.clear;
-    canvas.saveLayer(Offset.zero & size, Paint());
-    canvas.drawRect(rect, clear);
-    canvas.restore();
-    // border
-    final border = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(10)), border);
-  }
-
-  @override
-  bool shouldRepaint(covariant _CropOverlayPainter oldDelegate) {
-    return left != oldDelegate.left || top != oldDelegate.top || width != oldDelegate.width || height != oldDelegate.height;
-  }
-}
-
-class _CornerHandle extends StatelessWidget {
-  final Offset Function(Size) positionBuilder;
-  final void Function(Size) onPanStart;
-  final void Function(Offset delta, Size) onPanUpdate;
-  const _CornerHandle({required this.positionBuilder, required this.onPanStart, required this.onPanUpdate});
+  const _CropOverlay({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    required this.onDrag,
+    required this.onResize,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, c) {
-      final size = Size(c.maxWidth, c.maxHeight);
-      final pos = positionBuilder(size);
-      return Positioned(
-        left: pos.dx - 16,
-        top: pos.dy - 16,
-        child: GestureDetector(
-          onPanStart: (_) => onPanStart(size),
-          onPanUpdate: (d) => onPanUpdate(d.delta, size),
-          child: Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 3))],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cropLeft = left * constraints.maxWidth;
+        final cropTop = top * constraints.maxHeight;
+        final cropWidth = width * constraints.maxWidth;
+        final cropHeight = height * constraints.maxHeight;
+
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: Container(color: Colors.black.withOpacity(0.5)),
             ),
-            child: const Icon(Icons.drag_handle, size: 16, color: Colors.black87),
+            Positioned(
+              left: cropLeft,
+              top: cropTop,
+              width: cropWidth,
+              height: cropHeight,
+              child: GestureDetector(
+                onPanUpdate: (details) {
+                  onDrag(
+                    details.delta.dx / constraints.maxWidth,
+                    details.delta.dy / constraints.maxHeight,
+                  );
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.95),
+                      width: 3,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            _buildHandle(
+              context,
+              left: cropLeft,
+              top: cropTop,
+              onUpdate: (dx, dy) => onResize(
+                'topLeft',
+                dx / constraints.maxWidth,
+                dy / constraints.maxHeight,
+              ),
+            ),
+            _buildHandle(
+              context,
+              left: cropLeft + cropWidth - 20,
+              top: cropTop + cropHeight - 20,
+              onUpdate: (dx, dy) => onResize(
+                'bottomRight',
+                dx / constraints.maxWidth,
+                dy / constraints.maxHeight,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHandle(
+    BuildContext context, {
+    required double left,
+    required double top,
+    required Function(double dx, double dy) onUpdate,
+  }) {
+    return Positioned(
+      left: left,
+      top: top,
+      child: GestureDetector(
+        onPanUpdate: (details) => onUpdate(details.delta.dx, details.delta.dy),
+        child: Container(
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(
+            color: AppThemeConstants.primaryColor,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
           ),
         ),
-      );
-    });
+      ),
+    );
   }
 }
