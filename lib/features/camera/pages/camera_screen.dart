@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:snap_receipt/core/theme/app_theme_constants.dart';
 import 'package:camera/camera.dart';
 import 'package:go_router/go_router.dart';
+import 'package:snap_receipt/features/receipts/services/ocr_service.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -16,6 +18,9 @@ class _CameraScreenState extends State<CameraScreen> {
   CameraController? _controller;
   bool _isCameraReady = false;
   final ImagePicker _picker = ImagePicker();
+  Timer? _scanTimer;
+  bool _busy = false;
+  final OcrService _ocr = OcrService();
 
   @override
   void initState() {
@@ -29,12 +34,13 @@ class _CameraScreenState extends State<CameraScreen> {
       if (cameras.isNotEmpty) {
         _controller = CameraController(
           cameras.first,
-          ResolutionPreset.high,
+          ResolutionPreset.medium,
           enableAudio: false,
         );
         await _controller!.initialize();
         if (!mounted) return;
         setState(() => _isCameraReady = true);
+        _startAutoScan();
       }
     } catch (e) {
       debugPrint('Camera initialization failed: $e');
@@ -47,13 +53,42 @@ class _CameraScreenState extends State<CameraScreen> {
     if (!_isCameraReady || _controller == null) return;
 
     try {
+      if (_controller!.value.isTakingPicture) return;
+      await _controller!.pausePreview();
       final XFile capturedFile = await _controller!.takePicture();
       final file = File(capturedFile.path);
       if (!mounted) return;
       context.push('/preview', extra: file);
     } catch (e) {
       debugPrint('Capture failed: $e');
+    } finally {
+      try { await _controller?.resumePreview(); } catch (_) {}
     }
+  }
+
+  void _startAutoScan() {
+    _scanTimer?.cancel();
+    _scanTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
+      if (!mounted || !_isCameraReady || _controller == null || _busy) return;
+      try {
+        _busy = true;
+        if (_controller!.value.isTakingPicture) return;
+        await _controller!.pausePreview();
+        final XFile shot = await _controller!.takePicture();
+        final data = await _ocr.processImage(shot);
+        if (_ocr.shouldAutoCapture(data.rawText ?? '')) {
+          if (!mounted) return;
+          _scanTimer?.cancel();
+          final file = File(shot.path);
+          context.push('/preview', extra: file);
+        }
+      } catch (_) {
+        // ignore scan errors
+      } finally {
+        try { await _controller?.resumePreview(); } catch (_) {}
+        _busy = false;
+      }
+    });
   }
 
   // Pick image from gallery
@@ -75,6 +110,8 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   void dispose() {
     _controller?.dispose();
+    _scanTimer?.cancel();
+    _ocr.dispose();
     super.dispose();
   }
 
@@ -98,7 +135,10 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
           ),
 
-          // Bottom buttons
+          // Guide overlay
+          const _ReceiptGuideOverlay(),
+
+         
           Positioned(
             bottom: 40,
             left: 0,
@@ -153,3 +193,40 @@ class _CameraButton extends StatelessWidget {
     );
   }
 }
+
+class _ReceiptGuideOverlay extends StatelessWidget {
+  const _ReceiptGuideOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final width = c.maxWidth * 0.86;
+          final height = width / 0.58; // typical receipt aspect
+          final left = (c.maxWidth - width) / 2;
+          final top = (c.maxHeight - height) / 2;
+          return Stack(children: [
+            Positioned.fill(
+              child: Container(color: Colors.black.withOpacity(0.45)),
+            ),
+            Positioned(
+              left: left,
+              top: top,
+              width: width,
+              height: height,
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withOpacity(0.95), width: 3),
+                  color: Colors.transparent,
+                ),
+              ),
+            ),
+          ]);
+        },
+      ),
+    );
+  }
+}
+
